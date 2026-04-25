@@ -35,7 +35,7 @@ This repository is a Cargo workspace with four crates:
 ```
 siminf-rs/
 ├── siminf-core/        # Pure Rust solver — no FFI, no runtime dependencies
-├── siminf-rs/          # R package bindings via Rcpp (validates siminf-core against original R package)
+├── siminf-r/           # R package bindings via Rcpp (validates siminf-core against original R package)
 ├── siminf-wasm/        # WebAssembly bindings via wasm-bindgen
 ├── siminf-py/          # Python bindings via PyO3 (scaffolded)
 └── tests/
@@ -56,7 +56,7 @@ The heart of the project. Implements:
 `siminf-core` has no FFI dependencies and is intended to be usable in `no_std` environments
 where possible.
 
-### `siminf-rs` (R bindings)
+### `siminf-r` (R bindings)
 
 **Scaffold.** Rcpp bindings calling into `siminf-core`. Enables the Rust solver to be called
 from R using `.Call()` — useful for cross-validating against the original SimInf R/C
@@ -177,7 +177,7 @@ cargo test --workspace
 - [x] `siminf-core`: Gillespie SSA solver
 - [x] `siminf-core`: validation against R package fixtures
 - [x] `siminf-core`: scheduled events (Exit, Enter, InternalTransfer, ExternalTransfer) — E1/E2 processing with select_matrix and shift_matrix support
-- [ ] `siminf-rs` R package bindings — R side using `.Call()` / ` Rcpp` to call into siminf-core — good for validation and demonstrating Rust's flexibility over the original C
+- [ ] `siminf-r` R package bindings — R side using `.Call()` / `Rcpp` to call into siminf-core — good for validation and demonstrating Rust's flexibility over the original C
 - [ ] `siminf-wasm`: wasm-bindgen bindings — **scaffold**
 - [ ] `siminf-wasm`: TypeScript example (React dashboard)
 - [ ] `siminf-py`: PyO3 bindings — **scaffold**
