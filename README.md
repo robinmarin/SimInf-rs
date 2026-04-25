@@ -37,6 +37,7 @@ siminf-rs/
 ├── siminf-core/        # Pure Rust solver — no FFI, no runtime dependencies
 ├── siminf-wasm/        # WebAssembly bindings via wasm-bindgen (scaffolded)
 ├── siminf-py/          # Python bindings via PyO3 (scaffolded)
+├── siminf-r/           # R package bindings via .Call() FFI
 └── tests/
     └── validation/     # CSV outputs from the R package used for validation
 ```
