@@ -5,7 +5,7 @@ disease spread simulations. This project reimplements the SimInf simulation engi
 the goal of broader platform reach: native Rust, Python, and browser (WebAssembly) targets from a
 single core codebase.
 
-> **Status:** Early development. The core solver is not yet complete. Do not use in production.
+> **Status:** Core solver is working and validated against R reference output. WASM and Python bindings are scaffolded. Do not use in production.
 
 ---
 
@@ -39,8 +39,7 @@ siminf-rs/
 │   ├── siminf-wasm/    # WebAssembly bindings via wasm-bindgen
 │   └── siminf-py/      # Python bindings via PyO3 (scaffolded)
 ├── examples/
-│   ├── sir.rs
-│   └── seir.rs
+│   └── sir.rs
 └── tests/
     └── fixtures/       # CSV outputs from the R package used for validation
 ```
@@ -60,7 +59,7 @@ where possible.
 
 ### `siminf-wasm`
 
-Thin `wasm-bindgen` layer over `siminf-core`. Enables SimInf simulations to run in a browser tab
+**Scaffold.** Thin `wasm-bindgen` layer over `siminf-core`. Enables SimInf simulations to run in a browser tab
 with no server required — suitable for outbreak dashboards, policy tools, and interactive
 educational interfaces built in React, Vue, or plain TypeScript.
 
@@ -70,7 +69,7 @@ educational interfaces built in React, Vue, or plain TypeScript.
 
 ### `siminf-py`
 
-PyO3 bindings exposing `siminf-core` as a Python package. Intended to integrate naturally with
+**Scaffold.** PyO3 bindings exposing `siminf-core` as a Python package. Intended to integrate naturally with
 NumPy, pandas, and the broader scientific Python ecosystem. Currently scaffolded; not yet
 functional.
 
@@ -169,12 +168,12 @@ cargo test --workspace
 
 ## Roadmap
 
-- [ ] `siminf-core`: Gillespie SSA solver
-- [ ] `siminf-core`: scheduled events (births, deaths, node transfers)
-- [ ] `siminf-core`: validation against R package fixtures
-- [ ] `siminf-wasm`: wasm-bindgen bindings
+- [x] `siminf-core`: Gillespie SSA solver
+- [x] `siminf-core`: validation against R package fixtures
+- [ ] `siminf-core`: scheduled events (births, deaths, node transfers) — **scaffold**
+- [ ] `siminf-wasm`: wasm-bindgen bindings — **scaffold**
 - [ ] `siminf-wasm`: TypeScript example (React dashboard)
-- [ ] `siminf-py`: PyO3 bindings
+- [ ] `siminf-py`: PyO3 bindings — **scaffold**
 - [ ] `siminf-py`: pandas-native trajectory output
 - [ ] `mparse`-style string DSL for model definition
 - [ ] Continuous compartments (beyond integer counts)

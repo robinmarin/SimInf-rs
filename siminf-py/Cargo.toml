@@ -1,0 +1,13 @@
+[package]
+name = "siminf-py"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[dependencies]
+siminf-core = { path = "../siminf-core" }
+pyo3 = { version = "0.22", features = ["extension-module"] }
+
+[lib]
+name = "siminf_py"
+path = "src/lib.rs"

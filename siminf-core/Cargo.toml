@@ -1,0 +1,19 @@
+[package]
+name = "siminf-core"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[[example]]
+name = "sir"
+path = "examples/sir.rs"
+
+[dependencies]
+rand = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lib]
+name = "siminf_core"
+path = "src/lib.rs"
