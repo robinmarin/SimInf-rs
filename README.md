@@ -176,7 +176,7 @@ cargo test --workspace
 - [x] `siminf-core`: Gillespie SSA solver
 - [x] `siminf-core`: validation against R package fixtures
 - [x] `siminf-core`: scheduled events (Exit, Enter, InternalTransfer, ExternalTransfer) — E1/E2 processing with select_matrix and shift_matrix support
-- [ ] `siminf-r` R package bindings — R side using `.Call()` / `Rcpp` to call into siminf-core — good for validation and demonstrating Rust's flexibility over the original C
+- [x] `siminf-r` R package bindings — R side using `.Call()` / `Rcpp` to call into siminf-core — good for validation and demonstrating Rust's flexibility over the original C
 - [ ] `siminf-wasm`: wasm-bindgen bindings — **scaffold**
 - [ ] `siminf-wasm`: TypeScript example (React dashboard)
 - [ ] `siminf-py`: PyO3 bindings — **scaffold**
