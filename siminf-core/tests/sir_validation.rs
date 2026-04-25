@@ -38,7 +38,7 @@ fn test_sir_model_builds_correctly() {
 #[test]
 fn test_sir_simulation_runs() {
     let model = build_sir_model();
-    let solver = Solver::new(model);
+    let mut solver = Solver::new(model);
     let result = solver.run();
 
     assert_eq!(result.num_nodes, 1000);
@@ -50,7 +50,7 @@ fn test_sir_simulation_runs() {
 #[test]
 fn test_sir_conservation_of_individuals() {
     let model = build_sir_model();
-    let solver = Solver::new(model);
+    let mut solver = Solver::new(model);
     let result = solver.run();
 
     for t_idx in 0..result.tspan.len() {
@@ -66,7 +66,7 @@ fn test_sir_conservation_of_individuals() {
 #[test]
 fn test_sir_initial_condition() {
     let model = build_sir_model();
-    let solver = Solver::new(model);
+    let mut solver = Solver::new(model);
     let result = solver.run();
 
     let offset = 0;
@@ -137,7 +137,7 @@ fn test_sir_validation_against_r_means() {
     }
 
     let model = build_sir_model();
-    let solver = Solver::new(model);
+    let mut solver = Solver::new(model);
     let result = solver.run();
 
     let reference = load_means_csv(reference_path);

@@ -77,11 +77,43 @@ pub struct SparseMatrix {
     pub ir: Vec<i32>,
     pub jc: Vec<i32>,
     pub pr: Vec<i32>,
+    pub pr_f64: Option<Vec<f64>>,
 }
 
 impl SparseMatrix {
     pub fn new(ir: Vec<i32>, jc: Vec<i32>, pr: Vec<i32>) -> Self {
-        Self { ir, jc, pr }
+        Self { ir, jc, pr, pr_f64: None }
+    }
+
+    pub fn new_f64(ir: Vec<i32>, jc: Vec<i32>, pr_f64: Vec<f64>) -> Self {
+        Self { ir, jc, pr: vec![], pr_f64: Some(pr_f64) }
+    }
+
+    pub fn get_f64(&self, col: usize, row_in_col: usize) -> f64 {
+        let start = self.jc[col] as usize;
+        let idx = start + row_in_col;
+        if let Some(ref pr_f64) = self.pr_f64 {
+            pr_f64[idx]
+        } else {
+            self.pr[idx] as f64
+        }
+    }
+
+    pub fn get_i32(&self, col: usize, row_in_col: usize) -> i32 {
+        let start = self.jc[col] as usize;
+        let idx = start + row_in_col;
+        if let Some(ref pr_f64) = self.pr_f64 {
+            pr_f64[idx] as i32
+        } else {
+            self.pr[idx]
+        }
+    }
+
+    pub fn num_rows_in_col(&self, col: usize) -> usize {
+        if col + 1 >= self.jc.len() {
+            return 0;
+        }
+        (self.jc[col + 1] - self.jc[col]) as usize
     }
 }
 
@@ -113,6 +145,50 @@ pub struct ScheduledEvent {
     pub shift: i32,
 }
 
+impl ScheduledEvent {
+    pub fn new(
+        event_type: EventType,
+        time: f64,
+        node: usize,
+    ) -> Self {
+        Self {
+            event_type,
+            time,
+            node,
+            dest: None,
+            n: 0,
+            proportion: 0.0,
+            select: 0,
+            shift: -1,
+        }
+    }
+
+    pub fn n(mut self, n: usize) -> Self {
+        self.n = n;
+        self
+    }
+
+    pub fn proportion(mut self, proportion: f64) -> Self {
+        self.proportion = proportion;
+        self
+    }
+
+    pub fn select(mut self, select: i32) -> Self {
+        self.select = select;
+        self
+    }
+
+    pub fn shift(mut self, shift: i32) -> Self {
+        self.shift = shift;
+        self
+    }
+
+    pub fn dest(mut self, dest: usize) -> Self {
+        self.dest = Some(dest);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventType {
     Exit,
@@ -131,6 +207,8 @@ pub struct Model {
     pub tspan: Vec<f64>,
     pub events: Vec<ScheduledEvent>,
     pub seed: Option<u64>,
+    pub select_matrix: Option<SparseMatrix>,
+    pub shift_matrix: Option<SparseMatrix>,
 }
 
 impl Model {
@@ -149,6 +227,8 @@ pub struct ModelBuilder {
     tspan: Option<Vec<f64>>,
     events: Vec<ScheduledEvent>,
     seed: Option<u64>,
+    select_matrix: Option<SparseMatrix>,
+    shift_matrix: Option<SparseMatrix>,
 }
 
 impl ModelBuilder {
@@ -216,6 +296,16 @@ impl ModelBuilder {
         self
     }
 
+    pub fn select_matrix(mut self, matrix: SparseMatrix) -> Self {
+        self.select_matrix = Some(matrix);
+        self
+    }
+
+    pub fn shift_matrix(mut self, matrix: SparseMatrix) -> Self {
+        self.shift_matrix = Some(matrix);
+        self
+    }
+
     pub fn build(self) -> Result<Model, String> {
         let num_nodes = self.num_nodes.ok_or("num_nodes is required")?;
         let tspan = self.tspan.ok_or("tspan is required")?;
@@ -237,6 +327,8 @@ impl ModelBuilder {
             tspan,
             events: self.events,
             seed: self.seed,
+            select_matrix: self.select_matrix,
+            shift_matrix: self.shift_matrix,
         })
     }
 }

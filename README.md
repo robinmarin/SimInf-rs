@@ -5,7 +5,7 @@ disease spread simulations. This project reimplements the SimInf simulation engi
 the goal of broader platform reach: native Rust, Python, and browser (WebAssembly) targets from a
 single core codebase.
 
-> **Status:** Core solver is working and validated against R reference output. WASM and Python bindings are scaffolded. Do not use in production.
+> **Status:** Core solver is working and validated against R reference output. Scheduled events (Exit, Enter, InternalTransfer, ExternalTransfer) are implemented. WASM and Python bindings are scaffolded. Do not use in production.
 
 ---
 
@@ -47,9 +47,10 @@ The heart of the project. Implements:
 
 - Gillespie SSA inner loop
 - Node-level parallelism via `rayon` (replaces OpenMP)
-- Scheduled events: births, deaths, transfers between nodes
+- **Scheduled events**: Exit, Enter, InternalTransfer (per-node, E1), ExternalTransfer (sequential, E2) — with `select_matrix` (E) and `shift_matrix` (N) for sparse compartment selection and compartment-shifting during transfers
 - A typed `Model` builder API
 - `Trajectory` output type (compartment counts per node per timepoint)
+- Error handling (`EventError`) for invalid shift bounds, negative state, and out-of-bounds node access — matching SimInf C semantics
 
 `siminf-core` has no FFI dependencies and is intended to be usable in `no_std` environments
 where possible.
@@ -167,7 +168,7 @@ cargo test --workspace
 
 - [x] `siminf-core`: Gillespie SSA solver
 - [x] `siminf-core`: validation against R package fixtures
-- [ ] `siminf-core`: scheduled events (births, deaths, node transfers) — **scaffold**
+- [x] `siminf-core`: scheduled events (Exit, Enter, InternalTransfer, ExternalTransfer) — E1/E2 processing with select_matrix and shift_matrix support
 - [ ] `siminf-wasm`: wasm-bindgen bindings — **scaffold**
 - [ ] `siminf-wasm`: TypeScript example (React dashboard)
 - [ ] `siminf-py`: PyO3 bindings — **scaffold**

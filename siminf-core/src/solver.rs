@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::model::{
     Transition, PropensityFn, Model, SparseMatrix,
 };
+use crate::events::EventProcessor;
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case)]
@@ -20,6 +21,9 @@ pub struct Solver {
     gdata: Arc<Vec<f64>>,
     tspan: Arc<Vec<f64>>,
     events: Arc<Vec<crate::model::ScheduledEvent>>,
+    select_matrix: Arc<SparseMatrix>,
+    shift_matrix: Arc<SparseMatrix>,
+    e2_rng: StdRng,
     seed: u64,
 }
 
@@ -39,6 +43,30 @@ impl Solver {
         let events = model.events.clone();
         let tspan = model.tspan.clone();
 
+        let select_matrix = model.select_matrix.clone().unwrap_or_else(|| {
+            SparseMatrix::new(
+                (0..num_compartments).map(|i| i as i32).collect(),
+                {
+                    let mut jc = vec![0];
+                    for _ in 0..num_compartments {
+                        jc.push(jc.len() as i32 + 1);
+                    }
+                    jc
+                },
+                vec![1; num_compartments],
+            )
+        });
+
+        let shift_matrix = model.shift_matrix.clone().unwrap_or_else(|| {
+            SparseMatrix::new(
+                vec![],
+                vec![0; num_compartments + 1],
+                vec![],
+            )
+        });
+
+        let e2_rng = StdRng::seed_from_u64(seed.wrapping_add(0xE2E2E2E2E2E2E2E2u64));
+
         Self {
             model,
             num_compartments,
@@ -49,11 +77,14 @@ impl Solver {
             gdata: Arc::new(gdata),
             tspan: Arc::new(tspan),
             events: Arc::new(events),
+            select_matrix: Arc::new(select_matrix),
+            shift_matrix: Arc::new(shift_matrix),
+            e2_rng,
             seed,
         }
     }
 
-    pub fn run(&self) -> super::TrajectoryResult {
+    pub fn run(&mut self) -> super::TrajectoryResult {
         // Each node gets its own RNG seeded from the master seed so that node
         // execution order does not affect reproducibility when run in parallel.
         let mut node_rngs: Vec<StdRng> = (0..self.num_nodes)
@@ -144,33 +175,44 @@ impl Solver {
                     }
                 });
 
-            for event in &events_in_interval {
-                if let Some(dest) = event.dest {
-                    let n = if event.n > 0 {
-                        event.n
-                    } else {
-                        let total: i32 = u_current[event.node].iter().sum();
-                        ((total as f64) * event.proportion) as usize
-                    };
+            let e1_events: Vec<_> = events_in_interval.iter()
+                .filter(|e| e.event_type != crate::model::EventType::ExternalTransfer)
+                .cloned()
+                .collect();
 
-                    if n > 0 && event.node < self.num_nodes && dest < self.num_nodes {
-                        let src_total: i32 = u_current[event.node].iter().sum();
-                        let to_transfer = n.min(src_total as usize);
+            for node_idx in 0..self.num_nodes {
+                let node_events: Vec<_> = e1_events.iter()
+                    .filter(|e| e.node == node_idx)
+                    .cloned()
+                    .collect();
 
-                        let mut remaining = to_transfer;
-                        for comp_idx in 0..self.num_compartments {
-                            let available = u_current[event.node][comp_idx];
-                            let take = available.min(remaining as i32);
-                            u_current[event.node][comp_idx] -= take;
-                            u_current[dest][comp_idx] += take;
-                            remaining = remaining.saturating_sub(take as usize);
-                            if remaining == 0 {
-                                break;
+                if !node_events.is_empty() {
+                    let event_processor = EventProcessor::new(
+                        self.select_matrix.as_ref(),
+                        self.shift_matrix.as_ref(),
+                        self.num_compartments,
+                    );
+                    let _ = event_processor.process_e1_events(
+                        &node_events,
+                        &mut u_current,
+                        &mut node_rngs[node_idx],
+                    );
+                }
+            }
+
+            drop(e1_events);
+
+            let e2_processor = EventProcessor::new(
+                        self.select_matrix.as_ref(),
+                        self.shift_matrix.as_ref(),
+                        self.num_compartments,
+                    );
+                    for event in &events_in_interval {
+                        if event.event_type == crate::model::EventType::ExternalTransfer {
+                            if let Err(_) = e2_processor.apply_e2_event(event, &mut u_current, &mut self.e2_rng) {
                             }
                         }
                     }
-                }
-            }
 
             t = next_output_time;
             output_idx += 1;

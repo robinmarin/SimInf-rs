@@ -41,7 +41,7 @@ fn main() {
     println!("Compartments");
     println!("------------");
 
-    let solver = Solver::new(model);
+    let mut solver = Solver::new(model);
     println!("Running simulation...");
     let result = solver.run();
 
