@@ -1,6 +1,7 @@
 use rand::Rng;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rayon::prelude::*;
 use std::sync::Arc;
 
 use crate::model::{
@@ -53,7 +54,11 @@ impl Solver {
     }
 
     pub fn run(&self) -> super::TrajectoryResult {
-        let mut rng = StdRng::seed_from_u64(self.seed);
+        // Each node gets its own RNG seeded from the master seed so that node
+        // execution order does not affect reproducibility when run in parallel.
+        let mut node_rngs: Vec<StdRng> = (0..self.num_nodes)
+            .map(|node| StdRng::seed_from_u64(self.seed.wrapping_add(node as u64)))
+            .collect();
 
         let tspan = &self.tspan;
         let num_timepoints = tspan.len();
@@ -98,44 +103,46 @@ impl Solver {
                 .cloned()
                 .collect();
 
-            for node in 0..self.num_nodes {
-                let mut node_t = t;
-                let mut rates = self.compute_all_rates(&u_current[node], node_t);
+            u_current.par_iter_mut()
+                .zip(node_rngs.par_iter_mut())
+                .for_each(|(node_state, rng)| {
+                    let mut node_t = t;
+                    let mut rates = self.compute_all_rates(node_state, node_t);
 
-                while node_t < next_unit_of_time {
-                    let sum_t_rate: f64 = rates.iter().sum();
-                    if sum_t_rate <= 0.0 {
-                        break;
-                    }
-
-                    let tau = -rng.gen::<f64>().ln() / sum_t_rate;
-                    if node_t + tau >= next_unit_of_time {
-                        break;
-                    }
-
-                    node_t += tau;
-
-                    let u_rand = rng.gen::<f64>() * sum_t_rate;
-                    let mut cum = 0.0;
-                    let mut tr = 0;
-                    for (i, rate) in rates.iter().enumerate() {
-                        cum += *rate;
-                        if u_rand <= cum {
-                            tr = i;
+                    while node_t < next_unit_of_time {
+                        let sum_t_rate: f64 = rates.iter().sum();
+                        if sum_t_rate <= 0.0 {
                             break;
                         }
+
+                        let tau = -rng.gen::<f64>().ln() / sum_t_rate;
+                        if node_t + tau >= next_unit_of_time {
+                            break;
+                        }
+
+                        node_t += tau;
+
+                        let u_rand = rng.gen::<f64>() * sum_t_rate;
+                        let mut cum = 0.0;
+                        let mut tr = 0;
+                        for (i, rate) in rates.iter().enumerate() {
+                            cum += *rate;
+                            if u_rand <= cum {
+                                tr = i;
+                                break;
+                            }
+                        }
+
+                        apply_transition(node_state, &self.S, tr);
+
+                        rates[tr] = self.compute_rate(node_state, tr, node_t);
+
+                        for j in self.G.jc[tr] as usize..self.G.jc[tr + 1] as usize {
+                            let affected_tr = self.G.ir[j] as usize;
+                            rates[affected_tr] = self.compute_rate(node_state, affected_tr, node_t);
+                        }
                     }
-
-                    apply_transition(&mut u_current[node], &self.S, tr);
-
-                    rates[tr] = self.compute_rate(&u_current[node], tr, node_t);
-
-                    for j in self.G.jc[tr] as usize..self.G.jc[tr + 1] as usize {
-                        let affected_tr = self.G.ir[j] as usize;
-                        rates[affected_tr] = self.compute_rate(&u_current[node], affected_tr, node_t);
-                    }
-                }
-            }
+                });
 
             for event in &events_in_interval {
                 if let Some(dest) = event.dest {
