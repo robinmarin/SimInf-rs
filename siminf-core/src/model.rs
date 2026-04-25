@@ -277,6 +277,11 @@ impl ModelBuilder {
         self
     }
 
+    pub fn gdata_struct(mut self, gd: GlobalData) -> Self {
+        self.gdata = gd;
+        self
+    }
+
     pub fn local_data(mut self, data: Vec<f64>) -> Self {
         self.ldata.push(LocalData { values: data });
         self

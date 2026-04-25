@@ -6,7 +6,7 @@ mod solver;
 mod events;
 mod trajectory;
 
-pub use model::{Model, ModelBuilder, ModelError, Compartment, CompartmentId, Transition, PropensityFn};
+pub use model::{Model, ModelBuilder, ModelError, Compartment, CompartmentId, Transition, PropensityFn, GlobalData, SparseMatrix};
 pub use events::EventError;
 pub use trajectory::TrajectoryResult;
 pub use solver::{Solver, SimInfError};

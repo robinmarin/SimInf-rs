@@ -198,6 +198,7 @@ impl Solver {
         let mut events_index = 0usize;
 
         store_solution(&mut u, &u_current, output_idx, self.num_nodes, self.num_compartments);
+        output_idx += 1;
 
         let mut next_unit_of_time = t.floor() + 1.0;
 
@@ -391,9 +392,6 @@ impl Solver {
 
             next_unit_of_time = (t.floor() + 1.0).max(t + 1.0);
         }
-
-        let final_offset = self.num_nodes * self.num_compartments;
-        u[..final_offset].copy_from_slice(&u_current);
 
         Ok(super::TrajectoryResult {
             u: u,

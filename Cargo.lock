@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "siminf-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "rand 0.8.6",
  "rand_distr",
@@ -467,6 +467,14 @@ name = "siminf-py"
 version = "0.1.0"
 dependencies = [
  "pyo3",
+ "siminf-core",
+]
+
+[[package]]
+name = "siminf-r"
+version = "0.1.0"
+dependencies = [
+ "libc",
  "siminf-core",
 ]
 

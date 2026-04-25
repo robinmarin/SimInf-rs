@@ -1,0 +1,14 @@
+[package]
+name = "siminf-r"
+version = "0.3.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[lib]
+crate-type = ["staticlib"]
+name = "siminf_r"
+path = "src/lib.rs"
+
+[dependencies]
+siminf-core = { path = "../siminf-core" }
+libc = "0.2"

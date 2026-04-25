@@ -1,0 +1,7 @@
+## Makevars for siminfr R package
+##
+## Links the pre-compiled Rust static library (libsiminf_r.a) into the R package.
+## The Rust library must be pre-built via: cargo build --lib --release -p siminf-r
+
+STC_LIBRARY = /Users/robin/Gits/SimInf-rs/target/release/libsiminf_r.a
+PKG_LIBS = $(STC_LIBRARY) -L/opt/homebrew/lib/R/lib -lR $(FLIBS)
