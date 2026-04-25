@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CompartmentId(pub usize);
@@ -10,22 +11,12 @@ pub struct Compartment {
     pub initial_count: i32,
 }
 
+#[derive(Clone)]
 pub struct Transition {
     pub name: String,
     pub from: Vec<CompartmentId>,
     pub to: Vec<CompartmentId>,
     pub propensity_fn: PropensityFn,
-}
-
-impl Clone for Transition {
-    fn clone(&self) -> Self {
-        Transition {
-            name: self.name.clone(),
-            from: self.from.clone(),
-            to: self.to.clone(),
-            propensity_fn: self.propensity_fn.clone(),
-        }
-    }
 }
 
 impl std::fmt::Debug for Transition {
@@ -42,71 +33,29 @@ impl std::fmt::Debug for Transition {
 impl std::fmt::Debug for PropensityFn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PropensityFn::SToI => write!(f, "PropensityFn::SToI"),
-            PropensityFn::IToR => write!(f, "PropensityFn::IToR"),
             PropensityFn::Custom { name, .. } => write!(f, "PropensityFn::Custom({})", name),
         }
     }
 }
 
+#[derive(Clone)]
 pub enum PropensityFn {
-    SToI,
-    IToR,
     Custom {
         name: String,
-        #[allow(dead_code)]
-        eval: Box<dyn Fn(&[i32], &[f64], &[f64], f64) -> f64 + Send + Sync>,
+        eval: Arc<dyn Fn(&[i32], &[f64], &[f64], &[f64], f64) -> f64 + Send + Sync>,
     },
 }
 
-impl Clone for PropensityFn {
-    fn clone(&self) -> Self {
-        match self {
-            PropensityFn::SToI => PropensityFn::SToI,
-            PropensityFn::IToR => PropensityFn::IToR,
-            PropensityFn::Custom { name, .. } => PropensityFn::Custom {
-                name: name.clone(),
-                eval: Box::new(|_, _, _,_| 0.0),
-            },
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SparseMatrix {
+pub struct SparseMatrix<T> {
     pub ir: Vec<i32>,
     pub jc: Vec<i32>,
-    pub pr: Vec<i32>,
-    pub pr_f64: Option<Vec<f64>>,
+    pub pr: Vec<T>,
 }
 
-impl SparseMatrix {
-    pub fn new(ir: Vec<i32>, jc: Vec<i32>, pr: Vec<i32>) -> Self {
-        Self { ir, jc, pr, pr_f64: None }
-    }
-
-    pub fn new_f64(ir: Vec<i32>, jc: Vec<i32>, pr_f64: Vec<f64>) -> Self {
-        Self { ir, jc, pr: vec![], pr_f64: Some(pr_f64) }
-    }
-
-    pub fn get_f64(&self, col: usize, row_in_col: usize) -> f64 {
-        let start = self.jc[col] as usize;
-        let idx = start + row_in_col;
-        if let Some(ref pr_f64) = self.pr_f64 {
-            pr_f64[idx]
-        } else {
-            self.pr[idx] as f64
-        }
-    }
-
-    pub fn get_i32(&self, col: usize, row_in_col: usize) -> i32 {
-        let start = self.jc[col] as usize;
-        let idx = start + row_in_col;
-        if let Some(ref pr_f64) = self.pr_f64 {
-            pr_f64[idx] as i32
-        } else {
-            self.pr[idx]
-        }
+impl<T> SparseMatrix<T> {
+    pub fn new(ir: Vec<i32>, jc: Vec<i32>, pr: Vec<T>) -> Self {
+        Self { ir, jc, pr }
     }
 
     pub fn num_rows_in_col(&self, col: usize) -> usize {
@@ -117,14 +66,32 @@ impl SparseMatrix {
     }
 }
 
+impl SparseMatrix<f64> {
+    pub fn get_f64(&self, col: usize, row_in_col: usize) -> f64 {
+        let start = self.jc[col] as usize;
+        self.pr[start + row_in_col]
+    }
+}
+
+impl SparseMatrix<i32> {
+    pub fn get_i32(&self, col: usize, row_in_col: usize) -> i32 {
+        let start = self.jc[col] as usize;
+        self.pr[start + row_in_col]
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct GlobalData {
-    pub values: HashMap<String, f64>,
+    pub values: BTreeMap<String, f64>,
 }
 
 impl GlobalData {
     pub fn get(&self, name: &str) -> f64 {
         self.values.get(name).copied().unwrap_or(0.0)
+    }
+
+    pub fn to_vec(&self) -> Vec<f64> {
+        self.values.values().cloned().collect()
     }
 }
 
@@ -197,7 +164,7 @@ pub enum EventType {
     ExternalTransfer,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Model {
     pub compartments: Vec<Compartment>,
     pub transitions: Vec<Transition>,
@@ -207,9 +174,51 @@ pub struct Model {
     pub tspan: Vec<f64>,
     pub events: Vec<ScheduledEvent>,
     pub seed: Option<u64>,
-    pub select_matrix: Option<SparseMatrix>,
-    pub shift_matrix: Option<SparseMatrix>,
+    pub select_matrix: Option<SparseMatrix<f64>>,
+    pub shift_matrix: Option<SparseMatrix<i32>>,
+    pub u0: Option<Vec<i32>>,
+    pub nd: usize,
+    pub v0: Option<Vec<f64>>,
+    pub pts_fun: Option<Arc<dyn Fn(&mut [f64], &[i32], &[f64], &[f64], &[f64], usize, f64) + Send + Sync>>,
 }
+
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("compartments", &self.compartments)
+            .field("transitions", &self.transitions)
+            .field("gdata", &self.gdata)
+            .field("ldata", &self.ldata)
+            .field("num_nodes", &self.num_nodes)
+            .field("tspan", &self.tspan)
+            .field("events", &self.events)
+            .field("seed", &self.seed)
+            .field("select_matrix", &self.select_matrix)
+            .field("shift_matrix", &self.shift_matrix)
+            .field("u0", &self.u0)
+            .field("nd", &self.nd)
+            .field("v0", &self.v0)
+            .field("pts_fun", &"Option<Arc<dyn Fn(...)>>")
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelError {
+    MissingField(&'static str),
+    Validation(&'static str),
+}
+
+impl std::fmt::Display for ModelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModelError::MissingField(field) => write!(f, "Missing required field: {}", field),
+            ModelError::Validation(msg) => write!(f, "Validation error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ModelError {}
 
 impl Model {
     pub fn builder() -> ModelBuilder {
@@ -217,7 +226,7 @@ impl Model {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ModelBuilder {
     compartments: Vec<Compartment>,
     transitions: Vec<Transition>,
@@ -227,8 +236,12 @@ pub struct ModelBuilder {
     tspan: Option<Vec<f64>>,
     events: Vec<ScheduledEvent>,
     seed: Option<u64>,
-    select_matrix: Option<SparseMatrix>,
-    shift_matrix: Option<SparseMatrix>,
+    select_matrix: Option<SparseMatrix<f64>>,
+    shift_matrix: Option<SparseMatrix<i32>>,
+    u0: Option<Vec<i32>>,
+    nd: Option<usize>,
+    v0: Option<Vec<f64>>,
+    pts_fun: Option<Arc<dyn Fn(&mut [f64], &[i32], &[f64], &[f64], &[f64], usize, f64) + Send + Sync>>,
 }
 
 impl ModelBuilder {
@@ -296,26 +309,78 @@ impl ModelBuilder {
         self
     }
 
-    pub fn select_matrix(mut self, matrix: SparseMatrix) -> Self {
+    pub fn select_matrix(mut self, matrix: SparseMatrix<f64>) -> Self {
         self.select_matrix = Some(matrix);
         self
     }
 
-    pub fn shift_matrix(mut self, matrix: SparseMatrix) -> Self {
+    pub fn shift_matrix(mut self, matrix: SparseMatrix<i32>) -> Self {
         self.shift_matrix = Some(matrix);
         self
     }
 
-    pub fn build(self) -> Result<Model, String> {
-        let num_nodes = self.num_nodes.ok_or("num_nodes is required")?;
-        let tspan = self.tspan.ok_or("tspan is required")?;
+    pub fn u0(mut self, u0: Vec<i32>) -> Self {
+        self.u0 = Some(u0);
+        self
+    }
+
+    pub fn nd(mut self, nd: usize) -> Self {
+        self.nd = Some(nd);
+        self
+    }
+
+    pub fn v0(mut self, v0: Vec<f64>) -> Self {
+        self.v0 = Some(v0);
+        self
+    }
+
+    pub fn pts_fun<F>(mut self, pts_fun: F) -> Self
+    where
+        F: Fn(&mut [f64], &[i32], &[f64], &[f64], &[f64], usize, f64) + Send + Sync + 'static,
+    {
+        self.pts_fun = Some(Arc::new(pts_fun));
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> Result<Model, ModelError> {
+        let num_nodes = self.num_nodes.ok_or(ModelError::MissingField("num_nodes"))?;
+        let tspan = self.tspan.ok_or(ModelError::MissingField("tspan"))?;
 
         if self.compartments.is_empty() {
-            return Err("At least one compartment is required".to_string());
+            return Err(ModelError::Validation("At least one compartment is required"));
         }
 
         if self.transitions.is_empty() {
-            return Err("At least one transition is required".to_string());
+            return Err(ModelError::Validation("At least one transition is required"));
+        }
+
+        let num_compartments = self.compartments.len();
+        if !self.ldata.is_empty() {
+            let first_len = self.ldata[0].values.len();
+            for ld in &self.ldata {
+                if ld.values.len() != first_len {
+                    return Err(ModelError::Validation("All LocalData entries must have the same number of values"));
+                }
+            }
+        }
+
+        if let Some(ref u0) = self.u0 {
+            if u0.len() != num_nodes * num_compartments {
+                return Err(ModelError::Validation("u0 length must be num_nodes * num_compartments"));
+            }
+        }
+
+        if !self.events.is_empty() && self.select_matrix.is_none() {
+            return Err(ModelError::Validation("select_matrix is required when events are present"));
+        }
+
+        let nd = self.nd.unwrap_or(0);
+
+        if let Some(ref v0) = self.v0 {
+            if v0.len() != num_nodes * nd {
+                return Err(ModelError::Validation("v0 length must be num_nodes * nd"));
+            }
         }
 
         Ok(Model {
@@ -329,6 +394,10 @@ impl ModelBuilder {
             seed: self.seed,
             select_matrix: self.select_matrix,
             shift_matrix: self.shift_matrix,
+            u0: self.u0,
+            nd,
+            v0: self.v0,
+            pts_fun: self.pts_fun,
         })
     }
 }

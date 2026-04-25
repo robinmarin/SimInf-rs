@@ -30,13 +30,12 @@ wasm-bindgen) — making SimInf-style simulations accessible from any environmen
 
 ## Architecture
 
-This repository is a Cargo workspace with four crates:
+This repository is a Cargo workspace with three crates:
 
 ```
 siminf-rs/
 ├── siminf-core/        # Pure Rust solver — no FFI, no runtime dependencies
-├── siminf-r/           # R package bindings via Rcpp (validates siminf-core against original R package)
-├── siminf-wasm/        # WebAssembly bindings via wasm-bindgen
+├── siminf-wasm/        # WebAssembly bindings via wasm-bindgen (scaffolded)
 ├── siminf-py/          # Python bindings via PyO3 (scaffolded)
 └── tests/
     └── validation/     # CSV outputs from the R package used for validation

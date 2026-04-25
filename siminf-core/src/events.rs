@@ -11,13 +11,13 @@ pub enum EventError {
 }
 
 pub struct EventProcessor<'a> {
-    select_matrix: &'a SparseMatrix,
-    shift_matrix: &'a SparseMatrix,
+    select_matrix: &'a SparseMatrix<f64>,
+    shift_matrix: &'a SparseMatrix<i32>,
     num_compartments: usize,
 }
 
 impl<'a> EventProcessor<'a> {
-    pub fn new(select_matrix: &'a SparseMatrix, shift_matrix: &'a SparseMatrix, num_compartments: usize) -> Self {
+    pub fn new(select_matrix: &'a SparseMatrix<f64>, shift_matrix: &'a SparseMatrix<i32>, num_compartments: usize) -> Self {
         Self {
             select_matrix,
             shift_matrix,
@@ -28,13 +28,14 @@ impl<'a> EventProcessor<'a> {
     pub fn process_e1_events(
         &self,
         events: &[ScheduledEvent],
-        u_current: &mut [Vec<i32>],
+        node: usize,
+        node_state: &mut [i32],
         rng: &mut impl Rng,
     ) -> Result<(), EventError> {
         for event in events {
             match event.event_type {
                 EventType::Exit | EventType::Enter | EventType::InternalTransfer => {
-                    self.apply_e1_event(event, u_current, rng)?;
+                    self.apply_e1_event(event, node, node_state, rng)?;
                 }
                 EventType::ExternalTransfer => {}
             }
@@ -45,15 +46,10 @@ impl<'a> EventProcessor<'a> {
     fn apply_e1_event(
         &self,
         event: &ScheduledEvent,
-        u_current: &mut [Vec<i32>],
+        _node: usize,
+        node_state: &mut [i32],
         rng: &mut impl Rng,
     ) -> Result<(), EventError> {
-        let node = event.node;
-        if node >= u_current.len() {
-            return Ok(());
-        }
-        let node_state = &mut u_current[node];
-
         let n = self.determine_n(event, node_state, rng)?;
 
         match event.event_type {
@@ -71,57 +67,17 @@ impl<'a> EventProcessor<'a> {
         Ok(())
     }
 
-    pub fn apply_e2_event(
-        &self,
-        event: &ScheduledEvent,
-        u_current: &mut [Vec<i32>],
-        rng: &mut impl Rng,
-    ) -> Result<(), EventError> {
-        if event.event_type != EventType::ExternalTransfer {
-            return Ok(());
-        }
-
-        let node = event.node;
-        let dest = match event.dest {
-            Some(d) => d,
-            None => return Ok(()),
-        };
-
-        if node >= u_current.len() || dest >= u_current.len() {
-            return Err(EventError::NodeOutOfBounds);
-        }
-
-        if event.shift < 0 {
-            return Err(EventError::InvalidShift);
-        }
-
-        let n = self.determine_n(event, &u_current[node], rng)?;
-        let individuals = self.sample_from_select(event.select as usize, &u_current[node], n, rng)?;
-
-        for i in 0..self.select_matrix.num_rows_in_col(event.select as usize) {
-            let jj = self.select_matrix.ir[self.select_matrix.jc[event.select as usize] as usize + i] as usize;
-            let ll = self.shift_matrix.get_i32(event.shift as usize, i) as isize;
-            let dst_idx = jj as isize + ll;
-
-            if dst_idx < 0 || dst_idx >= self.num_compartments as isize {
-                return Err(EventError::ShiftOutOfBounds);
+    fn binomial_sample(trials: u64, prob: f64, rng: &mut impl Rng) -> u64 {
+        let mut successes = 0u64;
+        for _ in 0..trials {
+            if rng.gen::<f64>() < prob {
+                successes += 1;
             }
-
-            let src_idx = jj;
-            let count = individuals[src_idx];
-
-            if u_current[node][src_idx] < count {
-                return Err(EventError::NegativeState);
-            }
-
-            u_current[node][src_idx] -= count;
-            u_current[dest][dst_idx as usize] += count;
         }
-
-        Ok(())
+        successes
     }
 
-    fn determine_n(&self, event: &ScheduledEvent, node_state: &[i32], rng: &mut impl Rng) -> Result<usize, EventError> {
+    pub fn determine_n(&self, event: &ScheduledEvent, node_state: &[i32], rng: &mut impl Rng) -> Result<usize, EventError> {
         if event.n > 0 {
             return Ok(event.n);
         }
@@ -142,11 +98,28 @@ impl<'a> EventProcessor<'a> {
             return Err(EventError::SampleError);
         }
 
-        let p = (rng.gen::<f64>() * (total as f64) * proportion).round() as usize;
+        let p = Self::binomial_sample(total as u64, proportion, rng) as usize;
         Ok(p.min(total))
     }
 
-    fn sample_from_select(
+    fn hypergeometric_sample(population: u64, successes: u64, sample_size: u64, rng: &mut impl Rng) -> u64 {
+        if sample_size == 0 {
+            return 0;
+        }
+        if population == 0 || successes == 0 || sample_size > population {
+            return 0;
+        }
+        let mut successes_sampled = 0u64;
+        for _ in 0..sample_size {
+            let p = (successes - successes_sampled) as f64 / (population - successes_sampled) as f64;
+            if rng.gen::<f64>() < p {
+                successes_sampled += 1;
+            }
+        }
+        successes_sampled
+    }
+
+    pub fn sample_from_select(
         &self,
         select: usize,
         node_state: &[i32],
@@ -200,35 +173,32 @@ impl<'a> EventProcessor<'a> {
             return Ok(individuals);
         }
 
-        let pr_f64 = self.select_matrix.pr_f64.as_deref();
-        let all_weights_equal = if let Some(pr) = pr_f64 {
-            if pr.is_empty() {
-                true
-            } else {
-                let first_weight = pr[start];
-                let mut equal = true;
-                for i in (start + 1)..end {
-                    if (pr[i] - first_weight).abs() > 1e-12 {
-                        equal = false;
-                        break;
-                    }
-                }
-                equal
-            }
-        } else {
+        let pr = &self.select_matrix.pr;
+        let all_weights_equal = if pr.is_empty() {
             true
-        };
-
-        let no_weights = pr_f64.map(|pr| pr.is_empty()).unwrap_or(true);
-
-        if no_weights || all_weights_equal {
-            let mut remaining = n;
-            let total_available = n_individuals as i32;
-
-            for i in start..end {
-                if remaining == 0 {
+        } else {
+            let first_weight = pr[start];
+            let mut equal = true;
+            for i in (start + 1)..end {
+                if (pr[i] - first_weight).abs() > 1e-12 {
+                    equal = false;
                     break;
                 }
+            }
+            equal
+        };
+
+        let no_weights = pr.is_empty();
+
+        if no_weights || all_weights_equal {
+            let mut n_remaining = n as i32;
+            let mut n_available = n_individuals as i32;
+
+            for i in start..end {
+                if n_remaining == 0 {
+                    break;
+                }
+
                 let row = self.select_matrix.ir[i] as usize;
                 let count = node_state[row].max(0) as i32;
 
@@ -236,41 +206,16 @@ impl<'a> EventProcessor<'a> {
                     continue;
                 }
 
-                let available = (total_available - individuals.iter().sum::<i32>()).max(0);
-                if available == 0 {
-                    break;
-                }
+                let population = count.max(0) as u64;
+                let successes = (n_available - count).max(0) as u64;
+                let sample_size = n_remaining.max(0) as u64;
 
-                let sampled = if remaining >= count && count <= available {
-                    count
-                } else if remaining >= available {
-                    available
-                } else {
-                    let prob = remaining as f64 / available as f64;
-                    if rng.gen::<f64>() < prob {
-                        remaining
-                    } else {
-                        0
-                    }
-                };
+                let sampled = Self::hypergeometric_sample(population, successes, sample_size, rng) as i32;
+                let actual_sampled = sampled.max(0).min(count).min(n_remaining);
 
-                individuals[row] = sampled;
-                remaining -= sampled;
-            }
-
-            if remaining > 0 {
-                for i in start..end {
-                    let row = self.select_matrix.ir[i] as usize;
-                    let space = node_state[row].max(0) - individuals[row];
-                    if space > 0 {
-                        let add = remaining.min(space);
-                        individuals[row] += add;
-                        remaining -= add;
-                    }
-                    if remaining == 0 {
-                        break;
-                    }
-                }
+                individuals[row] = actual_sampled;
+                n_remaining -= actual_sampled;
+                n_available -= count;
             }
         } else {
             individuals = self.sample_biased_urn(select, node_state, n, rng)?;
@@ -285,7 +230,7 @@ impl<'a> EventProcessor<'a> {
 
         let start = self.select_matrix.jc[select] as usize;
         let end = self.select_matrix.jc[select + 1] as usize;
-        let pr = self.select_matrix.pr_f64.as_deref().unwrap_or(&[]);
+        let pr = &self.select_matrix.pr;
 
         while remaining > 0 {
             let mut cum = 0.0;
@@ -338,8 +283,65 @@ impl<'a> EventProcessor<'a> {
         Ok(())
     }
 
+    fn sample_from_select_enter(
+        &self,
+        select: usize,
+        n: usize,
+        rng: &mut impl Rng,
+    ) -> Result<Vec<i32>, EventError> {
+        let mut individuals = vec![0i32; self.num_compartments];
+        let n = n as i32;
+
+        if n == 0 {
+            return Ok(individuals);
+        }
+
+        let start = self.select_matrix.jc[select] as usize;
+        let end = self.select_matrix.jc[select + 1] as usize;
+        let n_states = end - start;
+
+        if n_states == 1 {
+            let row = self.select_matrix.ir[start] as usize;
+            individuals[row] = n;
+            return Ok(individuals);
+        }
+
+        let pr = &self.select_matrix.pr;
+        let mut w_cum = 0.0;
+        for i in start..end {
+            let weight = if pr.is_empty() { 1.0 } else { pr[i] };
+            w_cum += weight;
+        }
+
+        let mut n_remaining = n;
+        while n_remaining > 0 {
+            let mut rand = rng.gen::<f64>() * w_cum;
+            let mut i = start;
+            while i < end {
+                let row = self.select_matrix.ir[i] as usize;
+                let weight = if pr.is_empty() { 1.0 } else { pr[i] };
+
+                if rand <= weight {
+                    individuals[row] += 1;
+                    n_remaining -= 1;
+                    break;
+                }
+                rand -= weight;
+                i += 1;
+            }
+
+            if i >= end {
+                let row = self.select_matrix.ir[end - 1] as usize;
+                individuals[row] += 1;
+                n_remaining -= 1;
+            }
+        }
+
+        Ok(individuals)
+    }
+
     fn apply_enter(&self, event: &ScheduledEvent, node_state: &mut [i32], n: usize, rng: &mut impl Rng) -> Result<(), EventError> {
-        let individuals = self.sample_from_select(event.select as usize, node_state, n, rng)?;
+        let individuals = self.sample_from_select_enter(event.select as usize, n, rng)?;
 
         let start = self.select_matrix.jc[event.select as usize] as usize;
         let end = self.select_matrix.jc[event.select as usize + 1] as usize;
@@ -399,11 +401,11 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::SeedableRng;
 
-    fn make_select_matrix(ir: Vec<i32>, jc: Vec<i32>) -> SparseMatrix {
+    fn make_select_matrix(ir: Vec<i32>, jc: Vec<i32>) -> SparseMatrix<f64> {
         SparseMatrix::new(ir, jc, vec![])
     }
 
-    fn make_shift_matrix(ir: Vec<i32>, jc: Vec<i32>, pr: Vec<i32>) -> SparseMatrix {
+    fn make_shift_matrix(ir: Vec<i32>, jc: Vec<i32>, pr: Vec<i32>) -> SparseMatrix<i32> {
         SparseMatrix::new(ir, jc, pr)
     }
 

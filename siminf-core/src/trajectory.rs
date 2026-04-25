@@ -45,7 +45,7 @@ impl TrajectoryResult {
 
         for (t_idx, &t) in self.tspan.iter().enumerate() {
             for node in 0..self.num_nodes {
-                s.push_str(&format!("{},{}", node + 1, t as i32));
+                s.push_str(&format!("{},{}", node + 1, t));
                 for c in 0..self.num_compartments {
                     let idx = t_idx * self.num_nodes * self.num_compartments + node * self.num_compartments + c;
                     s.push_str(&format!(",{}", self.u[idx]));
@@ -65,7 +65,7 @@ pub struct TrajectoryView<'a> {
 }
 
 impl<'a> TrajectoryView<'a> {
-    pub fn time(mut self, idx: usize) -> Self {
+    pub fn time(&mut self, idx: usize) -> &mut Self {
         self.time_index = idx;
         self
     }

@@ -1,20 +1,43 @@
 use siminf_core::{Model, CompartmentId, Transition, PropensityFn, Solver};
 use std::path::Path;
+use std::sync::Arc;
 
 fn build_sir_model() -> Model {
+    let s_to_i = PropensityFn::Custom {
+        name: "S_to_I".to_string(),
+        eval: Arc::new(|u: &[i32], _v: &[f64], _ldata: &[f64], gdata: &[f64], _t: f64| {
+            let beta = gdata[0];
+            let s = u[0] as f64;
+            let i = u[1] as f64;
+            let n = (u[0] + u[1] + u[2]) as f64;
+            if n > 0.0 && s > 0.0 && i > 0.0 {
+                (beta * s * i) / n
+            } else {
+                0.0
+            }
+        }),
+    };
+    let i_to_r = PropensityFn::Custom {
+        name: "I_to_R".to_string(),
+        eval: Arc::new(|u: &[i32], _v: &[f64], _ldata: &[f64], gdata: &[f64], _t: f64| {
+            let gamma = gdata[1];
+            let i = u[1] as f64;
+            if i > 0.0 { gamma * i } else { 0.0 }
+        }),
+    };
     Model::builder()
         .compartments(&["S", "I", "R"], &[99, 5, 0])
         .transition(Transition {
             name: "S_to_I".to_string(),
             from: vec![CompartmentId(0)],
             to: vec![CompartmentId(1)],
-            propensity_fn: PropensityFn::SToI,
+            propensity_fn: s_to_i,
         })
         .transition(Transition {
             name: "I_to_R".to_string(),
             from: vec![CompartmentId(1)],
             to: vec![CompartmentId(2)],
-            propensity_fn: PropensityFn::IToR,
+            propensity_fn: i_to_r,
         })
         .global_data("beta", 0.16)
         .global_data("gamma", 0.077)
@@ -39,7 +62,7 @@ fn test_sir_model_builds_correctly() {
 fn test_sir_simulation_runs() {
     let model = build_sir_model();
     let mut solver = Solver::new(model);
-    let result = solver.run();
+    let result = solver.run().expect("Simulation failed");
 
     assert_eq!(result.num_nodes, 1000);
     assert_eq!(result.num_compartments, 3);
@@ -51,7 +74,7 @@ fn test_sir_simulation_runs() {
 fn test_sir_conservation_of_individuals() {
     let model = build_sir_model();
     let mut solver = Solver::new(model);
-    let result = solver.run();
+    let result = solver.run().expect("Simulation failed");
 
     for t_idx in 0..result.tspan.len() {
         for node in 0..result.num_nodes {
@@ -67,7 +90,7 @@ fn test_sir_conservation_of_individuals() {
 fn test_sir_initial_condition() {
     let model = build_sir_model();
     let mut solver = Solver::new(model);
-    let result = solver.run();
+    let result = solver.run().expect("Simulation failed");
 
     let offset = 0;
     assert_eq!(result.u[offset] + result.u[offset + 1] + result.u[offset + 2], 104);
@@ -138,7 +161,7 @@ fn test_sir_validation_against_r_means() {
 
     let model = build_sir_model();
     let mut solver = Solver::new(model);
-    let result = solver.run();
+    let result = solver.run().expect("Simulation failed");
 
     let reference = load_means_csv(reference_path);
 
